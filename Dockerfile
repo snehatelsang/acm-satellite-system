@@ -11,6 +11,7 @@ RUN pip3 install --no-cache-dir -r requirements.txt
 COPY main.py .
 COPY physics.py .
 COPY database.py .
+COPY acm-frontend/orbital_insight.html
 
 RUN mkdir -p /app/data
 ENV ACM_DB_PATH=/app/data/acm_sim.db
