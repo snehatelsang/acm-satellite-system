@@ -1,0 +1,854 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Orbital Insight — ACM Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&family=Exo+2:wght@300;400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:        #010810;
+    --bg2:       #040f1e;
+    --bg3:       #071628;
+    --grid:      rgba(0,180,255,0.06);
+    --border:    rgba(0,180,255,0.18);
+    --accent:    #00b4ff;
+    --accent2:   #00ffd5;
+    --warn:      #ffcc00;
+    --danger:    #ff3c5a;
+    --safe:      #00ff88;
+    --text:      #c8e6ff;
+    --dim:       rgba(200,230,255,0.45);
+    --font-hud:  'Share Tech Mono', monospace;
+    --font-head: 'Orbitron', sans-serif;
+    --font-body: 'Exo 2', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; background: var(--bg); color: var(--text); font-family: var(--font-body); overflow: hidden; }
+
+  /* ── scanline overlay ── */
+  body::after {
+    content:'';
+    position:fixed; inset:0; pointer-events:none; z-index:9999;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.08) 2px, rgba(0,0,0,0.08) 4px);
+  }
+
+  /* ── grid bg ── */
+  body::before {
+    content:'';
+    position:fixed; inset:0; pointer-events:none; z-index:0;
+    background-image:
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  /* ─────────── HEADER ─────────── */
+  header {
+    position:relative; z-index:10;
+    display:flex; align-items:center; justify-content:space-between;
+    padding: 10px 20px;
+    background: linear-gradient(90deg, var(--bg2), rgba(0,20,50,0.8));
+    border-bottom: 1px solid var(--border);
+  }
+  .logo { font-family: var(--font-head); font-size: 1.1rem; font-weight:900; letter-spacing:.2em; color: var(--accent); text-shadow: 0 0 18px var(--accent); }
+  .logo span { color: var(--accent2); }
+  .status-strip { display:flex; gap:24px; font-family: var(--font-hud); font-size:.72rem; }
+  .stat { display:flex; flex-direction:column; align-items:center; }
+  .stat .val { font-size:1.05rem; font-weight:700; color: var(--accent2); }
+  .stat .lbl { color: var(--dim); font-size:.62rem; letter-spacing:.1em; }
+  .conn-dot { width:8px; height:8px; border-radius:50%; background: var(--safe); box-shadow: 0 0 8px var(--safe); animation: pulse 1.5s infinite; }
+  .conn-dot.off { background: var(--danger); box-shadow: 0 0 8px var(--danger); animation: none; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+  /* ── API URL bar ── */
+  .url-bar {
+    display:flex; align-items:center; gap:8px;
+    background: var(--bg3); border:1px solid var(--border); border-radius:4px;
+    padding:4px 10px; font-family: var(--font-hud); font-size:.72rem;
+  }
+  .url-bar input {
+    background:none; border:none; outline:none; color: var(--accent2); width:220px; font-family: var(--font-hud); font-size:.72rem;
+  }
+  .url-bar button {
+    background: var(--accent); color: var(--bg); border:none; border-radius:2px;
+    padding:2px 8px; cursor:pointer; font-family: var(--font-hud); font-size:.65rem; font-weight:700;
+  }
+  .url-bar button:hover { background: var(--accent2); }
+
+  /* ─────────── LAYOUT ─────────── */
+  .workspace {
+    position:relative; z-index:1;
+    display:grid;
+    grid-template-columns: 1fr 300px;
+    grid-template-rows: 1fr 220px;
+    gap:8px; padding:8px;
+    height: calc(100vh - 56px);
+  }
+
+  .panel {
+    background: rgba(4,15,30,0.85);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    display:flex; flex-direction:column;
+    overflow:hidden;
+    backdrop-filter: blur(4px);
+  }
+  .panel-hdr {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:6px 12px;
+    background: rgba(0,180,255,0.06);
+    border-bottom:1px solid var(--border);
+    font-family: var(--font-head); font-size:.62rem; letter-spacing:.18em;
+    color: var(--accent);
+  }
+  .panel-hdr .badge {
+    font-family: var(--font-hud); font-size:.6rem; padding:1px 6px;
+    background: rgba(0,180,255,0.12); border:1px solid var(--border); border-radius:2px;
+    color: var(--dim);
+  }
+  .panel-body { flex:1; position:relative; overflow:hidden; }
+
+  /* ─────────── MAP PANEL ─────────── */
+  #map-panel { grid-column:1; grid-row:1; }
+  #mapCanvas { width:100%; height:100%; display:block; cursor:crosshair; }
+
+  /* ─────────── RIGHT PANELS ─────────── */
+  #right-top { grid-column:2; grid-row:1; }
+  #bullseye-canvas { width:100%; height:100%; display:block; }
+
+  /* ─────────── BOTTOM LEFT: FUEL HEATMAP ─────────── */
+  #fuel-panel { grid-column:1; grid-row:2; }
+  #fuelContainer { display:flex; flex-wrap:wrap; gap:4px; padding:8px; height:100%; align-content:flex-start; overflow-y:auto; }
+  .fuel-cell {
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    width:64px; height:52px; border-radius:3px; cursor:pointer;
+    border:1px solid rgba(0,180,255,0.2); transition: transform .15s;
+    font-family: var(--font-hud); font-size:.54rem;
+  }
+  .fuel-cell:hover { transform:scale(1.08); border-color: var(--accent2); z-index:2; }
+  .fuel-cell .fc-id { color:rgba(255,255,255,.8); font-size:.55rem; }
+  .fuel-cell .fc-val { font-size:.75rem; font-weight:700; margin-top:2px; }
+
+  /* ─────────── BOTTOM RIGHT: TIMELINE ─────────── */
+  #timeline-panel { grid-column:2; grid-row:2; }
+  #timelineScroll { padding:8px; height:100%; overflow-y:auto; font-family: var(--font-hud); font-size:.6rem; }
+  .tl-item {
+    display:flex; align-items:center; gap:8px;
+    padding:4px 6px; margin-bottom:3px;
+    border-left:3px solid; border-radius:0 3px 3px 0;
+    background: rgba(255,255,255,0.03);
+  }
+  .tl-item.burn  { border-color: var(--accent2); }
+  .tl-item.cdm   { border-color: var(--warn); }
+  .tl-item.crit  { border-color: var(--danger); }
+  .tl-item.step  { border-color: var(--accent); }
+  .tl-dot { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+  .tl-item.burn  .tl-dot { background: var(--accent2); }
+  .tl-item.cdm   .tl-dot { background: var(--warn); }
+  .tl-item.crit  .tl-dot { background: var(--danger); }
+  .tl-item.step  .tl-dot { background: var(--accent); }
+  .tl-text { color: var(--text); }
+  .tl-time { color: var(--dim); margin-left:auto; white-space:nowrap; }
+
+  /* ─────────── CONTROL BAR ─────────── */
+  .ctrl-bar {
+    position:absolute; bottom:0; left:0; right:0;
+    display:flex; align-items:center; gap:8px; padding:6px 10px;
+    background: rgba(1,8,16,0.9); border-top:1px solid var(--border);
+    font-family: var(--font-hud); font-size:.68rem; z-index:5;
+  }
+  .ctrl-bar label { color: var(--dim); }
+  .ctrl-bar input[type=number] {
+    background: var(--bg3); border:1px solid var(--border); border-radius:3px;
+    color: var(--accent2); padding:2px 6px; width:80px; font-family: var(--font-hud); font-size:.68rem;
+  }
+  .btn {
+    font-family: var(--font-hud); font-size:.65rem; padding:4px 12px; border-radius:2px;
+    border:1px solid; cursor:pointer; transition: all .15s; letter-spacing:.05em;
+  }
+  .btn-primary { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+  .btn-primary:hover { background: var(--accent2); border-color: var(--accent2); }
+  .btn-warn { background: transparent; color: var(--warn); border-color: var(--warn); }
+  .btn-warn:hover { background: rgba(255,204,0,0.12); }
+  .btn-danger { background: transparent; color: var(--danger); border-color: var(--danger); }
+  .btn-danger:hover { background: rgba(255,60,90,0.12); }
+  .btn-success { background: transparent; color: var(--safe); border-color: var(--safe); }
+  .btn-success:hover { background: rgba(0,255,136,0.12); }
+
+  /* ─────────── TOOLTIP ─────────── */
+  #tooltip {
+    position:fixed; background: rgba(4,15,30,0.97); border:1px solid var(--accent);
+    padding:7px 12px; border-radius:4px; font-family: var(--font-hud); font-size:.65rem;
+    color: var(--text); pointer-events:none; z-index:9998; display:none;
+    max-width:220px; line-height:1.6;
+  }
+
+  /* ─────────── MODAL (Maneuver) ─────────── */
+  .modal-overlay {
+    position:fixed; inset:0; background: rgba(1,8,16,0.85);
+    z-index:1000; display:none; align-items:center; justify-content:center;
+    backdrop-filter: blur(3px);
+  }
+  .modal-overlay.open { display:flex; }
+  .modal {
+    background: var(--bg2); border:1px solid var(--accent);
+    border-radius:6px; padding:20px; width:420px; max-height:90vh; overflow-y:auto;
+    font-family: var(--font-hud); font-size:.72rem;
+  }
+  .modal h2 { font-family: var(--font-head); font-size:.85rem; color: var(--accent2); margin-bottom:14px; letter-spacing:.15em; }
+  .form-row { display:flex; flex-direction:column; gap:3px; margin-bottom:10px; }
+  .form-row label { color: var(--dim); font-size:.62rem; }
+  .form-row input, .form-row select {
+    background: var(--bg3); border:1px solid var(--border); border-radius:3px;
+    color: var(--accent2); padding:5px 8px; font-family: var(--font-hud); font-size:.72rem; width:100%;
+  }
+  .form-row input:focus, .form-row select:focus { outline:none; border-color: var(--accent); }
+  .modal-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:14px; }
+
+  /* ─────────── SCROLLBARS ─────────── */
+  ::-webkit-scrollbar { width:4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(0,180,255,0.3); border-radius:2px; }
+
+  /* ─────────── FLASH ─────────── */
+  .flash {
+    position:fixed; top:64px; right:16px; z-index:9997;
+    font-family: var(--font-hud); font-size:.72rem;
+    padding:8px 14px; border-radius:4px; border:1px solid;
+    animation: fadeOut 3s forwards;
+  }
+  .flash.ok   { background: rgba(0,255,136,0.1); border-color: var(--safe); color: var(--safe); }
+  .flash.err  { background: rgba(255,60,90,0.1);  border-color: var(--danger); color: var(--danger); }
+  .flash.info { background: rgba(0,180,255,0.1); border-color: var(--accent); color: var(--accent); }
+  @keyframes fadeOut { 0%{opacity:1} 70%{opacity:1} 100%{opacity:0;pointer-events:none} }
+
+  /* ─────────── STEP LOADING ─────────── */
+  .sim-spinner {
+    position:fixed; inset:0; background:rgba(1,8,16,0.7);
+    z-index:9990; display:none; align-items:center; justify-content:center;
+    font-family: var(--font-head); font-size:1.2rem; color: var(--accent2); letter-spacing:.2em;
+    flex-direction:column; gap:14px;
+  }
+  .sim-spinner.open { display:flex; }
+  .spin-ring {
+    width:50px; height:50px; border-radius:50%;
+    border:3px solid rgba(0,180,255,0.2);
+    border-top:3px solid var(--accent2);
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform:rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<!-- ══ HEADER ══ -->
+<header>
+  <div class="logo">ORBITAL<span>INSIGHT</span> <span style="font-size:.55rem;color:var(--dim);letter-spacing:.05em">ACM v1.0</span></div>
+
+  <div class="url-bar">
+    <span style="color:var(--dim)">API</span>
+    <input id="apiUrl" type="text" value="http://localhost:8000" placeholder="http://localhost:8000">
+    <button onclick="reconnect()">CONNECT</button>
+    <div class="conn-dot off" id="connDot"></div>
+  </div>
+
+  <div class="status-strip">
+    <div class="stat"><span class="val" id="hdr-sats">—</span><span class="lbl">SATELLITES</span></div>
+    <div class="stat"><span class="val" id="hdr-debs">—</span><span class="lbl">DEBRIS</span></div>
+    <div class="stat"><span class="val" id="hdr-cdm" style="color:var(--warn)">—</span><span class="lbl">CDM WARN</span></div>
+    <div class="stat"><span class="val" id="hdr-col" style="color:var(--danger)">—</span><span class="lbl">COLLISIONS</span></div>
+    <div class="stat"><span class="val" id="hdr-time" style="font-size:.75rem">—</span><span class="lbl">SIM TIME</span></div>
+  </div>
+</header>
+
+<!-- ══ WORKSPACE ══ -->
+<div class="workspace">
+
+  <!-- Ground Track Map -->
+  <div class="panel" id="map-panel">
+    <div class="panel-hdr">
+      GROUND TRACK MAP — MERCATOR PROJECTION
+      <span class="badge" id="map-badge">AUTO-REFRESH 5s</span>
+    </div>
+    <div class="panel-body">
+      <canvas id="mapCanvas"></canvas>
+    </div>
+  </div>
+
+  <!-- Conjunction Bullseye -->
+  <div class="panel" id="right-top">
+    <div class="panel-hdr">
+      CONJUNCTION BULLSEYE
+      <span class="badge" id="bull-sat-label">NO SAT SELECTED</span>
+    </div>
+    <div class="panel-body">
+      <canvas id="bullseye-canvas"></canvas>
+    </div>
+  </div>
+
+  <!-- Fuel Heatmap -->
+  <div class="panel" id="fuel-panel" style="position:relative">
+    <div class="panel-hdr">
+      FUEL HEATMAP — FLEET RESOURCE STATUS
+      <span class="badge">mfuel / 50 kg</span>
+    </div>
+    <div class="panel-body" style="overflow:hidden">
+      <div id="fuelContainer"></div>
+    </div>
+    <div class="ctrl-bar">
+      <label>STEP (s):</label>
+      <input type="number" id="stepSec" value="3600" min="1" max="86400">
+      <button class="btn btn-primary" onclick="doStep()">⏩ SIMULATE STEP</button>
+      <button class="btn btn-success" onclick="openManeuverModal()">🚀 SCHEDULE BURN</button>
+      <button class="btn btn-warn" onclick="fetchCDMHistory()">⚠ CDM HISTORY</button>
+      <button class="btn btn-danger" onclick="fetchBurnHistory()">🔥 BURN HISTORY</button>
+      <span id="step-result" style="color:var(--dim);margin-left:auto"></span>
+    </div>
+  </div>
+
+  <!-- Maneuver Timeline -->
+  <div class="panel" id="timeline-panel">
+    <div class="panel-hdr">
+      EVENT TIMELINE
+      <span class="badge" id="tl-count">0 EVENTS</span>
+    </div>
+    <div class="panel-body">
+      <div id="timelineScroll"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ TOOLTIP ══ -->
+<div id="tooltip"></div>
+
+<!-- ══ LOADING ══ -->
+<div class="sim-spinner" id="simSpinner">
+  <div class="spin-ring"></div>
+  SIMULATING…
+</div>
+
+<!-- ══ MANEUVER MODAL ══ -->
+<div class="modal-overlay" id="maneuverModal">
+  <div class="modal">
+    <h2>🚀 SCHEDULE MANEUVER</h2>
+    <div class="form-row">
+      <label>SATELLITE ID</label>
+      <input id="m-satId" type="text" placeholder="SAT-Alpha-01">
+    </div>
+    <div class="form-row">
+      <label>BURN ID</label>
+      <input id="m-burnId" type="text" placeholder="MANUAL_BURN_1">
+    </div>
+    <div class="form-row">
+      <label>BURN TIME (ISO UTC)</label>
+      <input id="m-burnTime" type="text" placeholder="2026-03-12T14:15:30.000Z">
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+      <div class="form-row"><label>ΔVx (km/s)</label><input id="m-dvx" type="number" step="0.0001" value="0.002"></div>
+      <div class="form-row"><label>ΔVy (km/s)</label><input id="m-dvy" type="number" step="0.0001" value="0.005"></div>
+      <div class="form-row"><label>ΔVz (km/s)</label><input id="m-dvz" type="number" step="0.0001" value="-0.001"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-danger" onclick="closeModal()">CANCEL</button>
+      <button class="btn btn-primary" onclick="submitManeuver()">SUBMIT TO BACKEND</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════════════
+//  STATE
+// ══════════════════════════════════════════════════════════════════
+let API = 'http://localhost:8000';
+let snapshot = null;
+let simStatus = null;
+let selectedSat = null;
+let timelineEvents = [];
+let refreshTimer = null;
+
+// ══════════════════════════════════════════════════════════════════
+//  UTILITIES
+// ══════════════════════════════════════════════════════════════════
+function flash(msg, type='info') {
+  const el = document.createElement('div');
+  el.className = `flash ${type}`;
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 3200);
+}
+
+function addTLEvent(type, text) {
+  const now = new Date().toLocaleTimeString('en-GB', {hour12:false});
+  timelineEvents.unshift({type, text, time: now});
+  if (timelineEvents.length > 80) timelineEvents.pop();
+  renderTimeline();
+}
+
+function renderTimeline() {
+  const el = document.getElementById('timelineScroll');
+  el.innerHTML = timelineEvents.map(e => `
+    <div class="tl-item ${e.type}">
+      <div class="tl-dot"></div>
+      <span class="tl-text">${e.text}</span>
+      <span class="tl-time">${e.time}</span>
+    </div>`).join('');
+  document.getElementById('tl-count').textContent = timelineEvents.length + ' EVENTS';
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  API CALLS
+// ══════════════════════════════════════════════════════════════════
+async function apiGet(path) {
+  const r = await fetch(API + path);
+  if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+  return r.json();
+}
+async function apiPost(path, body) {
+  const r = await fetch(API + path, {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body)
+  });
+  if (!r.ok) {
+    const txt = await r.text();
+    throw new Error(r.status + ': ' + txt);
+  }
+  return r.json();
+}
+
+async function fetchStatus() {
+  try {
+    simStatus = await apiGet('/api/status');
+    document.getElementById('hdr-sats').textContent = simStatus.tracked_satellites ?? '—';
+    document.getElementById('hdr-debs').textContent = simStatus.tracked_debris ?? '—';
+    document.getElementById('hdr-cdm').textContent  = simStatus.active_cdm_warnings ?? '—';
+    document.getElementById('hdr-col').textContent  = simStatus.total_collisions ?? '—';
+    const t = simStatus.sim_time ? simStatus.sim_time.replace('T',' ').slice(0,19)+'Z' : '—';
+    document.getElementById('hdr-time').textContent = t;
+    document.getElementById('connDot').classList.remove('off');
+    return true;
+  } catch(e) {
+    document.getElementById('connDot').classList.add('off');
+    return false;
+  }
+}
+
+async function fetchSnapshot() {
+  try {
+    snapshot = await apiGet('/api/visualization/snapshot');
+    drawMap();
+    drawBullseye();
+    drawFuelHeatmap();
+    if (simStatus?.active_cdm_warnings > 0) {
+      addTLEvent('cdm', `${simStatus.active_cdm_warnings} CDM warning(s) active`);
+    }
+  } catch(e) {
+    // silent — backend may not have data yet
+  }
+}
+
+async function refresh() {
+  await fetchStatus();
+  await fetchSnapshot();
+}
+
+function reconnect() {
+  API = document.getElementById('apiUrl').value.trim().replace(/\/$/, '');
+  clearInterval(refreshTimer);
+  refresh();
+  refreshTimer = setInterval(refresh, 5000);
+  flash('Connecting to ' + API, 'info');
+  addTLEvent('step', 'Connected to ' + API);
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  SIMULATE STEP
+// ══════════════════════════════════════════════════════════════════
+async function doStep() {
+  const sec = parseFloat(document.getElementById('stepSec').value);
+  if (isNaN(sec) || sec <= 0) { flash('Invalid step value', 'err'); return; }
+  document.getElementById('simSpinner').classList.add('open');
+  try {
+    const res = await apiPost('/api/simulate/step', {step_seconds: sec});
+    const ts = res.new_timestamp?.slice(0,19) + 'Z';
+    document.getElementById('step-result').textContent =
+      `▶ ${ts} | col:${res.collisions_detected} burns:${res.maneuvers_executed}`;
+    flash(`Step complete — ${res.maneuvers_executed} burns, ${res.collisions_detected} collisions`, 'ok');
+    addTLEvent('step', `Step +${sec}s → col:${res.collisions_detected} burns:${res.maneuvers_executed}`);
+    if (res.collisions_detected > 0) addTLEvent('crit', `${res.collisions_detected} COLLISION(S) DETECTED!`);
+    await refresh();
+  } catch(e) {
+    flash('Step failed: ' + e.message, 'err');
+    addTLEvent('crit', 'Step error: ' + e.message);
+  } finally {
+    document.getElementById('simSpinner').classList.remove('open');
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  MANEUVER MODAL
+// ══════════════════════════════════════════════════════════════════
+function openManeuverModal() {
+  // Pre-fill burn time = now + 30s
+  const t = new Date(Date.now() + 30000).toISOString().slice(0,23) + 'Z';
+  document.getElementById('m-burnTime').value = t;
+  if (selectedSat) document.getElementById('m-satId').value = selectedSat;
+  document.getElementById('maneuverModal').classList.add('open');
+}
+function closeModal() {
+  document.getElementById('maneuverModal').classList.remove('open');
+}
+
+async function submitManeuver() {
+  const satId   = document.getElementById('m-satId').value.trim();
+  const burnId  = document.getElementById('m-burnId').value.trim();
+  const burnT   = document.getElementById('m-burnTime').value.trim();
+  const dvx     = parseFloat(document.getElementById('m-dvx').value);
+  const dvy     = parseFloat(document.getElementById('m-dvy').value);
+  const dvz     = parseFloat(document.getElementById('m-dvz').value);
+  if (!satId || !burnId || !burnT) { flash('Fill all fields', 'err'); return; }
+  try {
+    const res = await apiPost('/api/maneuver/schedule', {
+      satelliteId: satId,
+      maneuver_sequence: [{
+        burn_id: burnId,
+        burnTime: burnT,
+        deltaV_vector: {x: dvx, y: dvy, z: dvz}
+      }]
+    });
+    const v = res.validation;
+    flash(`Scheduled! fuel_ok:${v.sufficient_fuel} mass_rem:${v.projected_mass_remaining_kg}kg`, 'ok');
+    addTLEvent('burn', `BURN ${burnId} on ${satId} @ ${burnT.slice(11,19)}`);
+    closeModal();
+  } catch(e) {
+    flash('Maneuver failed: ' + e.message, 'err');
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  CDM & BURN HISTORY
+// ══════════════════════════════════════════════════════════════════
+async function fetchCDMHistory() {
+  try {
+    const res = await apiGet('/api/history/cdm?limit=20');
+    res.events.forEach(e => addTLEvent(e.status === 'CRITICAL' ? 'crit' : 'cdm',
+      `CDM ${e.satellite_id}↔${e.debris_id} d=${e.distance_km?.toFixed(3)}km [${e.status}]`));
+    flash(`Loaded ${res.count} CDM events`, 'info');
+  } catch(e) { flash('CDM history error: ' + e.message, 'err'); }
+}
+
+async function fetchBurnHistory() {
+  try {
+    const res = await apiGet('/api/history/burns?limit=20');
+    res.burns.forEach(b => addTLEvent('burn',
+      `BURN ${b.burn_id} on ${b.satellite_id} dv_mag=${b.dv_mag_ms?.toFixed(3)}m/s fuel_used=${b.fuel_consumed_kg?.toFixed(4)}kg`));
+    flash(`Loaded ${res.count} burn records`, 'info');
+  } catch(e) { flash('Burn history error: ' + e.message, 'err'); }
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  MAP DRAWING
+// ══════════════════════════════════════════════════════════════════
+function drawMap() {
+  const canvas = document.getElementById('mapCanvas');
+  const container = canvas.parentElement;
+  canvas.width  = container.clientWidth;
+  canvas.height = container.clientHeight;
+  const W = canvas.width, H = canvas.height;
+  const ctx = canvas.getContext('2d');
+
+  // Background
+  ctx.fillStyle = '#010e1f';
+  ctx.fillRect(0, 0, W, H);
+
+  // Day/Night terminator approximation
+  const now = snapshot?.timestamp ? new Date(snapshot.timestamp) : new Date();
+  const dayFrac = (now.getUTCHours() * 3600 + now.getUTCMinutes() * 60 + now.getUTCSeconds()) / 86400;
+  const sunLon = (0.5 - dayFrac) * 360;
+  const grad = ctx.createLinearGradient(0, 0, W, 0);
+  const sunX = ((sunLon + 180) / 360) * W;
+  // gentle day/night
+  ctx.fillStyle = 'rgba(255,220,100,0.04)';
+  ctx.fillRect(Math.max(0, sunX - W*0.4), 0, W*0.8, H);
+
+  // Grid lines
+  ctx.strokeStyle = 'rgba(0,180,255,0.07)';
+  ctx.lineWidth = 0.5;
+  for (let lon = -180; lon <= 180; lon += 30) {
+    const x = ((lon + 180) / 360) * W;
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+  }
+  for (let lat = -90; lat <= 90; lat += 30) {
+    const y = ((90 - lat) / 180) * H;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+
+  // Equator / Prime Meridian
+  ctx.strokeStyle = 'rgba(0,180,255,0.18)'; ctx.lineWidth = 0.8;
+  const eqY = H / 2;
+  ctx.beginPath(); ctx.moveTo(0, eqY); ctx.lineTo(W, eqY); ctx.stroke();
+  const pmX = W / 2;
+  ctx.beginPath(); ctx.moveTo(pmX, 0); ctx.lineTo(pmX, H); ctx.stroke();
+
+  // Labels
+  ctx.font = '9px Share Tech Mono'; ctx.fillStyle = 'rgba(0,180,255,0.35)';
+  ['180°','90°W','0°','90°E','180°'].forEach((l,i) => ctx.fillText(l, (i/4)*W + 2, H-4));
+
+  if (!snapshot) return;
+
+  // Terminator line (dashed)
+  ctx.setLineDash([4, 4]);
+  ctx.strokeStyle = 'rgba(255,200,50,0.25)'; ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let px = 0; px <= W; px++) {
+    const lon2 = (px / W) * 360 - 180;
+    const angle = (lon2 - sunLon) * Math.PI / 180;
+    const termLat = Math.atan(-Math.cos(angle) / 0.0001) * 180 / Math.PI; // approximate
+    const py = ((90 - Math.max(-90, Math.min(90, termLat * 0.8))) / 180) * H;
+    px === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Ground Stations
+  const GS = [
+    {name:'ISTRAC',lat:13.03,lon:77.52},{name:'Svalbard',lat:78.23,lon:15.41},
+    {name:'Goldstone',lat:35.43,lon:-116.89},{name:'Punta Arenas',lat:-53.15,lon:-70.92},
+    {name:'IIT Delhi',lat:28.55,lon:77.19},{name:'McMurdo',lat:-77.85,lon:166.67}
+  ];
+  GS.forEach(gs => {
+    const x = ((gs.lon + 180) / 360) * W;
+    const y = ((90 - gs.lat) / 180) * H;
+    ctx.strokeStyle = 'rgba(0,255,136,0.5)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(x, y, 14, 0, Math.PI*2); ctx.stroke();
+    ctx.fillStyle = 'rgba(0,255,136,0.8)';
+    ctx.beginPath(); ctx.arc(x, y, 2.5, 0, Math.PI*2); ctx.fill();
+    ctx.font = '7px Share Tech Mono'; ctx.fillStyle = 'rgba(0,255,136,0.6)';
+    ctx.fillText(gs.name, x+5, y-5);
+  });
+
+  // Debris cloud (fast dots)
+  ctx.fillStyle = 'rgba(255,80,80,0.25)';
+  (snapshot.debris_cloud || []).forEach(d => {
+    const [, lat, lon] = d;
+    const x = ((lon + 180) / 360) * W;
+    const y = ((90 - lat) / 180) * H;
+    ctx.fillRect(x - 0.7, y - 0.7, 1.5, 1.5);
+  });
+
+  // Satellites
+  (snapshot.satellites || []).forEach(sat => {
+    const x = ((sat.lon + 180) / 360) * W;
+    const y = ((90 - sat.lat) / 180) * H;
+    const isSelected = sat.id === selectedSat;
+    const col = sat.status === 'NOMINAL' ? '#00ffd5' : sat.status === 'DANGER' ? '#ff3c5a' : '#ffcc00';
+
+    // Glow
+    const g = ctx.createRadialGradient(x,y,0, x,y, isSelected ? 14 : 8);
+    g.addColorStop(0, col.replace(')', ',0.4)').replace('rgb', 'rgba'));
+    g.addColorStop(1, 'transparent');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, isSelected ? 14 : 8, 0, Math.PI*2); ctx.fill();
+
+    // Dot
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.arc(x, y, isSelected ? 5 : 3, 0, Math.PI*2); ctx.fill();
+
+    if (isSelected || (snapshot.satellites.length < 15)) {
+      ctx.font = '8px Share Tech Mono'; ctx.fillStyle = col;
+      ctx.fillText(sat.id, x + 7, y - 4);
+    }
+  });
+
+  // Sim time watermark
+  if (snapshot.timestamp) {
+    ctx.font = '9px Share Tech Mono'; ctx.fillStyle = 'rgba(0,180,255,0.3)';
+    ctx.fillText('SIM ' + snapshot.timestamp.slice(0,19) + 'Z', 6, 14);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  BULLSEYE
+// ══════════════════════════════════════════════════════════════════
+function drawBullseye() {
+  const canvas = document.getElementById('bullseye-canvas');
+  const c = canvas.parentElement;
+  canvas.width = c.clientWidth; canvas.height = c.clientHeight;
+  const W = canvas.width, H = canvas.height;
+  const ctx = canvas.getContext('2d');
+  const cx = W/2, cy = H/2, maxR = Math.min(W,H)/2 - 24;
+
+  ctx.fillStyle = '#020c1a'; ctx.fillRect(0,0,W,H);
+
+  // Rings
+  [1, 0.66, 0.33].forEach((f, i) => {
+    const r = maxR * f;
+    const labels = ['5 km','1 km','100 m'];
+    const cols = ['rgba(0,255,136,0.15)','rgba(255,204,0,0.2)','rgba(255,60,90,0.25)'];
+    ctx.strokeStyle = cols[i]; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.stroke();
+    ctx.fillStyle = cols[i].replace('0.', '0.7').replace('rgba', 'rgba');
+    ctx.font = '8px Share Tech Mono';
+    ctx.fillStyle = i===0?'rgba(0,255,136,.5)':i===1?'rgba(255,204,0,.6)':'rgba(255,60,90,.7)';
+    ctx.fillText(labels[i], cx + r + 3, cy - 3);
+  });
+
+  // Crosshairs
+  ctx.strokeStyle = 'rgba(0,180,255,0.2)'; ctx.lineWidth = 0.5;
+  ctx.beginPath(); ctx.moveTo(cx, cy - maxR - 5); ctx.lineTo(cx, cy + maxR + 5); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx - maxR - 5, cy); ctx.lineTo(cx + maxR + 5, cy); ctx.stroke();
+
+  // Center sat
+  ctx.fillStyle = '#00ffd5';
+  ctx.beginPath(); ctx.arc(cx, cy, 5, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = 'rgba(0,255,213,.4)'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.arc(cx, cy, 10, 0, Math.PI*2); ctx.stroke();
+
+  if (!snapshot || !snapshot.satellites?.length) {
+    ctx.font = '10px Share Tech Mono'; ctx.fillStyle = 'rgba(200,230,255,.3)';
+    ctx.textAlign = 'center';
+    ctx.fillText('CLICK A SATELLITE ON MAP', cx, cy + maxR + 16);
+    ctx.textAlign = 'left';
+    return;
+  }
+
+  const sat = selectedSat
+    ? snapshot.satellites.find(s => s.id === selectedSat)
+    : snapshot.satellites[0];
+
+  if (!sat) return;
+  document.getElementById('bull-sat-label').textContent = sat.id;
+
+  // Simulated debris approach (from CDM data if available; else synthetic demo)
+  const debrisCloud = snapshot.debris_cloud || [];
+  const nearby = [];
+  debrisCloud.forEach(d => {
+    const [id, dlat, dlon] = d;
+    const dlat2 = dlat - sat.lat, dlon2 = dlon - sat.lon;
+    const distKm = Math.sqrt(dlat2*dlat2*12100 + dlon2*dlon2*12100);
+    if (distKm < 8) nearby.push({id, distKm, angle: Math.atan2(dlon2, dlat2)});
+  });
+
+  nearby.sort((a,b) => a.distKm - b.distKm).slice(0,20).forEach(obj => {
+    const r2 = (obj.distKm / 5) * maxR;
+    const px = cx + r2 * Math.cos(obj.angle);
+    const py = cy + r2 * Math.sin(obj.angle);
+    const col = obj.distKm < 0.1 ? '#ff3c5a' : obj.distKm < 1 ? '#ffcc00' : '#00ff88';
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.arc(px, py, 3, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = col + '88'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(px, py); ctx.stroke();
+  });
+
+  if (nearby.length === 0) {
+    ctx.font = '9px Share Tech Mono'; ctx.fillStyle = 'rgba(0,255,136,.45)';
+    ctx.textAlign = 'center';
+    ctx.fillText('NO NEARBY DEBRIS (< 8 km)', cx, cy + maxR + 16);
+    ctx.textAlign = 'left';
+  }
+
+  // Sat info
+  ctx.font = '8px Share Tech Mono'; ctx.fillStyle = 'rgba(0,255,213,.65)';
+  ctx.fillText(`FUEL ${sat.fuel_kg?.toFixed(2)} kg`, 8, H - 22);
+  ctx.fillText(`STATUS ${sat.status}`, 8, H - 12);
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  FUEL HEATMAP
+// ══════════════════════════════════════════════════════════════════
+function drawFuelHeatmap() {
+  const container = document.getElementById('fuelContainer');
+  if (!snapshot?.satellites?.length) {
+    container.innerHTML = '<div style="color:var(--dim);font-family:var(--font-hud);font-size:.65rem;padding:10px">No satellite data — connect to backend</div>';
+    return;
+  }
+  container.innerHTML = snapshot.satellites.map(sat => {
+    const pct = Math.max(0, Math.min(1, (sat.fuel_kg || 0) / 50));
+    const r = Math.round(255 * (1 - pct));
+    const g = Math.round(180 * pct);
+    const bg = `rgba(${r},${g},40,0.25)`;
+    const border = `rgba(${r},${g},40,0.5)`;
+    const textcol = pct > 0.5 ? '#00ff88' : pct > 0.2 ? '#ffcc00' : '#ff3c5a';
+    return `<div class="fuel-cell" style="background:${bg};border-color:${border}"
+      onclick="selectSat('${sat.id}')"
+      onmouseenter="showTip(event,'${sat.id}<br>Fuel: ${sat.fuel_kg?.toFixed(2)} kg<br>Status: ${sat.status}<br>Lat: ${sat.lat?.toFixed(2)} Lon: ${sat.lon?.toFixed(2)}')"
+      onmouseleave="hideTip()">
+      <span class="fc-id">${sat.id.replace('SAT-','').slice(0,8)}</span>
+      <span class="fc-val" style="color:${textcol}">${sat.fuel_kg?.toFixed(1)}</span>
+    </div>`;
+  }).join('');
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  INTERACTIONS
+// ══════════════════════════════════════════════════════════════════
+function selectSat(id) {
+  selectedSat = id;
+  document.getElementById('bull-sat-label').textContent = id;
+  drawBullseye();
+  addTLEvent('step', `Selected satellite: ${id}`);
+}
+
+document.getElementById('mapCanvas').addEventListener('click', function(e) {
+  if (!snapshot?.satellites?.length) return;
+  const rect = this.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  const W = this.width, H = this.height;
+  let best = null, bestD = 12;
+  snapshot.satellites.forEach(sat => {
+    const x = ((sat.lon + 180) / 360) * W;
+    const y = ((90 - sat.lat) / 180) * H;
+    const d = Math.hypot(mx - x, my - y);
+    if (d < bestD) { bestD = d; best = sat.id; }
+  });
+  if (best) selectSat(best);
+});
+
+document.getElementById('mapCanvas').addEventListener('mousemove', function(e) {
+  if (!snapshot?.satellites?.length) return;
+  const rect = this.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  const W = this.width, H = this.height;
+  let best = null, bestD = 14;
+  snapshot.satellites.forEach(sat => {
+    const x = ((sat.lon + 180) / 360) * W;
+    const y = ((90 - sat.lat) / 180) * H;
+    const d = Math.hypot(mx - x, my - y);
+    if (d < bestD) { bestD = d; best = sat; }
+  });
+  if (best) {
+    showTip(e, `${best.id}<br>Lat: ${best.lat?.toFixed(3)} Lon: ${best.lon?.toFixed(3)}<br>Fuel: ${best.fuel_kg?.toFixed(2)} kg<br>Status: ${best.status}`);
+  } else hideTip();
+});
+
+document.getElementById('mapCanvas').addEventListener('mouseleave', hideTip);
+
+function showTip(e, html) {
+  const t = document.getElementById('tooltip');
+  t.innerHTML = html;
+  t.style.display = 'block';
+  t.style.left = (e.clientX + 14) + 'px';
+  t.style.top  = (e.clientY - 10) + 'px';
+}
+function hideTip() { document.getElementById('tooltip').style.display = 'none'; }
+
+// ══════════════════════════════════════════════════════════════════
+//  RESIZE
+// ══════════════════════════════════════════════════════════════════
+window.addEventListener('resize', () => { drawMap(); drawBullseye(); });
+
+// ══════════════════════════════════════════════════════════════════
+//  BOOT
+// ══════════════════════════════════════════════════════════════════
+addTLEvent('step', 'Dashboard initialized');
+addTLEvent('step', 'Enter backend URL and click CONNECT');
+drawMap();
+drawBullseye();
+drawFuelHeatmap();
+
+// Auto-start
+reconnect();
+</script>
+</body>
+</html>
